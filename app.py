@@ -1,16 +1,34 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import io
+import requests
 
 st.set_page_config(page_title="Used Car Price Predictor")
 st.title("🚗 Used Car Price Predictor")
-st.write("Enter details below to estimate resale value.")
+st.markdown("Estimate resale value using a trained ML model hosted on Hugging Face.")
 
-# Load model and features
-model = joblib.load("car_price_predictor.pkl")
-features = joblib.load("model_features.pkl")
+# URLs from Hugging Face
+MODEL_URL = "https://huggingface.co/ujan2003/Car-Price-Prediction/resolve/main/car_price_predictor.pkl"
+FEATURES_URL = "https://huggingface.co/ujan2003/Car-Price-Prediction/resolve/main/model_features.pkl"
 
-# Input fields
+# Load model and features from Hugging Face
+@st.cache_resource
+def load_model():
+    model_file = requests.get(MODEL_URL).content
+    model = joblib.load(io.BytesIO(model_file))
+    return model
+
+@st.cache_data
+def load_features():
+    features_file = requests.get(FEATURES_URL).content
+    features = joblib.load(io.BytesIO(features_file))
+    return features
+
+model = load_model()
+features = load_features()
+
+# Input form
 present_price = st.number_input("Present Price (in ₹ Lakh)", 0.0, 100.0, 5.0, step=0.1)
 kms_driven = st.number_input("KMs Driven", 0, 500000, 30000, step=500)
 mileage = st.number_input("Mileage (km/l)", 5.0, 40.0, 18.0, step=0.1)
@@ -24,13 +42,13 @@ fuel_type = st.radio("Fuel Type", ["Diesel", "Petrol", "CNG"])
 seller_type = st.radio("Seller Type", ["Dealer", "Individual"])
 transmission = st.radio("Transmission", ["Manual", "Automatic"])
 
-# Manual encoding
+# Encoding
 fuel_diesel = 1 if fuel_type == "Diesel" else 0
 fuel_petrol = 1 if fuel_type == "Petrol" else 0
 seller_individual = 1 if seller_type == "Individual" else 0
 trans_manual = 1 if transmission == "Manual" else 0
 
-# Input vector
+# Prepare input vector
 input_data = {
     'Present_Price': present_price,
     'Kms_Driven': kms_driven,
@@ -46,14 +64,15 @@ input_data = {
     'Transmission_Manual': trans_manual
 }
 
-# Fill missing expected features with 0 (for dummy vars)
-input_vector = pd.DataFrame([input_data])
-for col in features:
-    if col not in input_vector.columns:
-        input_vector[col] = 0
-input_vector = input_vector[features]
+input_df = pd.DataFrame([input_data])
 
-# Predict
+# Fill in missing dummy features
+for col in features:
+    if col not in input_df.columns:
+        input_df[col] = 0
+input_df = input_df[features]  # Ensure same column order
+
+# Prediction
 if st.button("Predict Selling Price"):
-    result = model.predict(input_vector)[0]
-    st.success(f"Estimated Resale Value: ₹ {result:.2f} Lakh")
+    prediction = model.predict(input_df)[0]
+    st.success(f"Estimated Resale Price: ₹ {prediction:.2f} Lakh")
